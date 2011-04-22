@@ -78,10 +78,12 @@ module Control.Monad.Par (
     Par,
     runPar,
     fork,
+    block, both, forkWithTok,
 
     -- * Communication: @IVar@s
     IVar,
-    new, newFull, newFull_,
+    new, newFull, newFull_, 
+    newBlocking,
     get,
     put, put_,
 
@@ -93,6 +95,10 @@ module Control.Monad.Par (
     InclusiveRange(..),
     parFor,
 
+    -- * Cancellation
+   CancellationToken, newCancellationToken,
+   setCancellationToken, getCancellationToken, cancel,
+   withCancel
   ) where
 
 import Control.Monad.Par.Internal
@@ -105,16 +111,41 @@ import GHC.Conc (numCapabilities)
 
 -- -----------------------------------------------------------------------------
 
+withCancel :: Par a -> Par a
+withCancel m = do
+  r <- new
+  tok <- newCancellationToken
+  forkWithTok tok (m >>= put_ r)
+  fr <- get r
+  cancel tok
+  return fr
+
+block :: Par a
+block = Par $ \tok _ -> Trace tok Done
+
 -- | forks a computation to happen in parallel.  The forked
 -- computation may exchange values with other computations using
 -- @IVar@s.
 fork :: Par () -> Par ()
-fork p = Par $ \c -> Fork (runCont p (\_ -> Done)) (c ())
+fork p = Par $ \tok c -> Trace tok $ Fork (runCont p tok (\_ _ -> Trace tok Done)) (c tok ())
 
+-- | forks a computation to happen in parallel.  The forked
+-- computation may exchange values with other computations using
+-- @IVar@s. The forked computation will carry the specified cancellation
+-- token (which can be used to cancel the computation from other running
+-- processes)
+forkWithTok :: CancellationToken -> Par () -> Par ()
+forkWithTok token p = Par $ \origTok c -> 
+  let forkTok = Just token in 
+  Trace origTok
+    (Fork (runCont p forkTok (\_ _ -> Trace forkTok Done)) 
+          (c origTok ()))
+
+-- | starts both computations in parallel and runs the continuation
+-- two times when they each finish
 -- > both a b >> c  ==   both (a >> c) (b >> c)
--- is this useful for anything?
--- both :: Par a -> Par a -> Par a
--- both a b = Par $ \c -> Fork (runCont a c) (runCont b c)
+both :: Par a -> Par a -> Par a
+both a b = Par $ \tok c -> Trace tok (Fork (runCont a tok c) (runCont b tok c))
 
 -- -----------------------------------------------------------------------------
 -- Derived functions
