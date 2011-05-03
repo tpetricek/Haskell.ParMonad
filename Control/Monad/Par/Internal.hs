@@ -4,7 +4,7 @@
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-unused-do-bind #-}
 
 -- Enables various logging output that help with debugging of cancellation tokens
-#define DEBUG_CANCELLATION
+-- # define DEBUG_CANCELLATION
 
 -- | This module exposes the internals of the @Par@ monad so that you
 -- can build your own scheduler or other extensions.  Do not use this
@@ -21,8 +21,8 @@ module Control.Monad.Par.Internal (
    newBlocking, 
 
    -- Cancellation
-   CancellationToken, newCancellationToken,
-   setCancellationToken, getCancellationToken, cancel
+   CancelToken, newCancelToken,
+   getCancelToken, setCancelToken, cancel
  ) where
 
 
@@ -45,22 +45,22 @@ import Control.Applicative
 -- token. When the token is cancelled and a trace is picked from a queue
 -- it will be dropped (without performing/evaluating it)
 
-data Trace = Trace (Maybe CancellationToken) TraceStep
+data Trace = Trace (Maybe CancelToken) TraceStep
 
 data TraceStep 
-  = forall a . Get (IVar a) (Maybe CancellationToken -> a -> Trace)
+  = forall a . Get (IVar a) (Maybe CancelToken -> a -> Trace)
   | forall a . Put (IVar a) a Trace
   -- Boolean specifies whether the variable to be created is blocking
   -- (True means it will block when a second write attempt is made, 
   --  instead of raising an exception)
-  | forall a . New Bool (IVarContents a) (Maybe CancellationToken -> IVar a -> Trace)
+  | forall a . New Bool (IVarContents a) (Maybe CancelToken -> IVar a -> Trace)
   | forall a . Bind Trace
   | Fork Trace Trace
   | Done
   | Yield Trace
   -- Support for the cancellation of computations
-  | Cancel CancellationToken Trace
-  | NewCtoken (CancellationToken -> Trace)
+  | Cancel CancelToken Trace
+  | NewCtoken (CancelToken -> Trace)
 
 
 -- For debugging purposes (printing information about trace steps)
@@ -90,7 +90,7 @@ sched _doSync queue trace = loop trace
                    Just b -> readIORef $ getTokenRef b
     
 #ifdef DEBUG_CANCELLATION
-    let dtok = fmap (const cancelled) tok
+    let dtok = fmap (\(id, _) -> (id, cancelled)) tok
     putStrLn $ "Sched (token = " ++ (show dtok) ++ "): " ++ (show step)
 #endif
     step' <- if cancelled then (do 
@@ -262,32 +262,32 @@ data Sched = Sched
 -- Represents a token that can be created and later used to cancel a computation.
 -- (When debugging, the token also has some ID generated randomly for tracking)
 #ifdef DEBUG_CANCELLATION
-type CancellationToken = (Int, IORef Bool)
+type CancelToken = (Int, IORef Bool)
 
-getTokenRef :: CancellationToken -> IORef Bool
+getTokenRef :: CancelToken -> IORef Bool
 getTokenRef (_, r) = r
 
-createNewToken :: IO CancellationToken
+createNewToken :: IO CancelToken
 createNewToken = do 
   tok <- newIORef False
   rnd <- randomRIO (1000, 9999)
   return (rnd, tok)
 #else
-type CancellationToken = IORef Bool
+type CancelToken = IORef Bool
 
-getTokenRef :: CancellationToken -> IORef Bool
+getTokenRef :: CancelToken -> IORef Bool
 getTokenRef r = r
 
-createNewToken :: IO CancellationToken
+createNewToken :: IO CancelToken
 createNewToken = newIORef False
 #endif
 
 -- Cancellation token is kept through the evaluation. It can be changed by some
--- operations (such as 'setCancellationToken' below). When given a cancellation token
+-- operations (such as 'setCancelToken' below). When given a cancellation token
 -- and a continuation, the 'Par' does something and eventually calls the continuation
 -- with the result and a new cancellation token (to be used for marking created traces)
 newtype Par a = Par {
-    runCont :: Maybe CancellationToken -> (Maybe CancellationToken -> a -> Trace) -> Trace
+    runCont :: Maybe CancelToken -> (Maybe CancelToken -> a -> Trace) -> Trace
 }
 
 instance Functor Par where
@@ -435,21 +435,21 @@ yield = Par $ \tok c -> Trace tok (Yield (c tok ()))
 
 -- -----------------------------------------------------------------------------
 
--- | creates a new @CancellationToken@ (that is not cancelled)
-newCancellationToken :: Par CancellationToken
-newCancellationToken = Par $ \tok c -> Trace tok (NewCtoken $ c tok)
+-- | creates a new @CancelToken@ (that is not cancelled)
+newCancelToken :: Par CancelToken
+newCancelToken = Par $ \tok c -> Trace tok (NewCtoken $ c tok)
 
--- | sets the current @CancellationToken@ of the computation
-setCancellationToken :: Maybe CancellationToken -> Par ()
-setCancellationToken tok = Par $ \_ c -> c tok ()
+-- | sets the current @CancelToken@ of the computation
+setCancelToken :: Maybe CancelToken -> Par ()
+setCancelToken tok = Par $ \_ c -> c tok ()
 
--- | returns the current @CancellationToken@ of the computation
+-- | returns the current @CancelToken@ of the computation
 -- (if there is a cancellation token associated with it)
-getCancellationToken :: Par (Maybe CancellationToken)
-getCancellationToken = Par $ \tok c -> c tok tok
+getCancelToken :: Par (Maybe CancelToken)
+getCancelToken = Par $ \tok c -> c tok tok
 
--- | cancels the specified @CancellationToken@. this means that all traces
+-- | cancels the specified @CancelToken@. this means that all traces
 -- that were created using this token will be eventually cancelled (as they
 -- reach the next step such as bind)
-cancel :: CancellationToken -> Par ()
+cancel :: CancelToken -> Par ()
 cancel tok = Par $ \tinner c -> Trace tinner (Cancel tok (c tinner ()))

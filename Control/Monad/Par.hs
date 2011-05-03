@@ -78,7 +78,7 @@ module Control.Monad.Par (
     Par,
     runPar,
     fork,
-    block, both, forkWithTok,
+    block, both, forkWith,
 
     -- * Communication: @IVar@s
     IVar,
@@ -96,8 +96,8 @@ module Control.Monad.Par (
     parFor,
 
     -- * Cancellation
-   CancellationToken, newCancellationToken,
-   setCancellationToken, getCancellationToken, cancel,
+   CancelToken, newCancelToken,
+   setCancelToken, getCancelToken, cancel,
    withCancel
   ) where
 
@@ -114,8 +114,8 @@ import GHC.Conc (numCapabilities)
 withCancel :: Par a -> Par a
 withCancel m = do
   r <- new
-  tok <- newCancellationToken
-  forkWithTok tok (m >>= put_ r)
+  tok <- newCancelToken
+  forkWith tok (m >>= put_ r)
   fr <- get r
   cancel tok
   return fr
@@ -134,8 +134,8 @@ fork p = Par $ \tok c -> Trace tok $ Fork (runCont p tok (\_ _ -> Trace tok Done
 -- @IVar@s. The forked computation will carry the specified cancellation
 -- token (which can be used to cancel the computation from other running
 -- processes)
-forkWithTok :: CancellationToken -> Par () -> Par ()
-forkWithTok token p = Par $ \origTok c -> 
+forkWith :: CancelToken -> Par () -> Par ()
+forkWith token p = Par $ \origTok c -> 
   let forkTok = Just token in 
   Trace origTok
     (Fork (runCont p forkTok (\_ _ -> Trace forkTok Done)) 
