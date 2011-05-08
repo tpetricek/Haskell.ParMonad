@@ -92,19 +92,13 @@ main2 = do
 -- Example #3: ...
 -----------------------------------------------------------------------------------------
 
-pffib :: NumType -> Par NumType
-pffib x = f 1 1 x
-  where f a b 0 = return b
-        f a b n = f b (a+b) (n-1)
-{-
-pfib :: Int64 -> Par Int64
-pfib n | n < 25 = return (fib n)
-pfib n = do 
-  av <- spawn (pfib (n - 1))
-  b  <- pfib (n - 2)  
+pffib :: Int64 -> Par Int64
+pffib n | n < 25 = return (ffib n)
+pffib n = do 
+  av <- spawn (pffib (n - 1))
+  b  <- pffib (n - 2)  
   a  <- get av
   return (a + b)
--}
 
 punamb :: NFData a => Par a -> Par a -> Par a
 punamb p1 p2 = do
@@ -122,7 +116,7 @@ punamb p1 p2 = do
   v <- get r
   return v
 
-main3 = do
+main = do
   measure "Pfib 32" $ runPar $ pfib 32
   measure "Pffib 32" $ runPar $ pffib 32
   measure "Unamb" $ runPar $ punamb (pfib 32) (pffib 32)
@@ -164,18 +158,18 @@ forallp p (Node left right) = do
 foralls :: (a -> Bool) -> Tree a -> Par Bool
 foralls p tree = do
     tok <- newCancelToken
-    r <- forall' p tok tree
+    r <- forall' tok tree
     cancel tok 
     return r
   where 
-    forall' p tok (Leaf v) = return (p v)
-    forall' p tok (Node left right) = do
+    forall' tok (Leaf v) = return (p v)
+    forall' tok (Node left right) = do
       leftRes <- new
       rightRes <- new
       finalRes <- newBlocking
-      forkWith tok (forall' p tok left >>= 
+      forkWith tok (forall' tok left >>= 
         completed leftRes rightRes finalRes)
-      forkWith tok (forall' p tok right >>= 
+      forkWith tok (forall' tok right >>= 
         completed rightRes leftRes finalRes)
       get finalRes
     
@@ -185,7 +179,7 @@ foralls p tree = do
       else get varB >>= put fin . (&& resA)
         
 
-main = do
+main4 = do
   -- Generate tree with some random primes & force its evaluation
   let range = [ 5000000000 .. 5000005000 ] 
   let primes = [ n | n <- range, isPrime n ] 
