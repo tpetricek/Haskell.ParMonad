@@ -77,6 +77,7 @@ module Control.Monad.Par (
     -- * The @Par@ monad
     Par,
     runPar,
+    runPar_,
     fork,
     block, both, forkWith,
 
@@ -98,7 +99,7 @@ module Control.Monad.Par (
     -- * Cancellation
    CancelToken, newCancelToken,
    setCancelToken, getCancelToken, cancel,
-   withCancel
+   withCancel, wrapCancel
   ) where
 
 import Control.Monad.Par.Internal

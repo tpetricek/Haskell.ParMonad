@@ -15,21 +15,18 @@ module Control.Monad.Par.Internal (
    Trace(..), TraceStep(..), Sched(..), Par(..),
    IVar(..), IVarContents(..),
    sched,
-   runPar, runParAsync, runParAsyncHelper,
+   runPar, runPar_, runParAsync, runParAsyncHelper,
    new, newFull, newFull_, get, put_, put,
    pollIVar, yield,
    newBlocking, 
 
    -- Cancellation
-   CancelToken, newCancelToken,
+   CancelToken, newCancelToken, wrapCancel,
    getCancelToken, setCancelToken, cancel
  ) where
 
 
-#ifdef DEBUG_CANCELLATION
 import System.Random
-#endif
-
 import Control.Monad as M hiding (mapM, sequence, join)
 import Prelude hiding (mapM, sequence, head,tail)
 import Data.IORef
@@ -261,7 +258,6 @@ data Sched = Sched
 
 -- Represents a token that can be created and later used to cancel a computation.
 -- (When debugging, the token also has some ID generated randomly for tracking)
-#ifdef DEBUG_CANCELLATION
 type CancelToken = (Int, IORef Bool)
 
 getTokenRef :: CancelToken -> IORef Bool
@@ -272,15 +268,6 @@ createNewToken = do
   tok <- newIORef False
   rnd <- randomRIO (1000, 9999)
   return (rnd, tok)
-#else
-type CancelToken = IORef Bool
-
-getTokenRef :: CancelToken -> IORef Bool
-getTokenRef r = r
-
-createNewToken :: IO CancelToken
-createNewToken = newIORef False
-#endif
 
 -- Cancellation token is kept through the evaluation. It can be changed by some
 -- operations (such as 'setCancelToken' below). When given a cancellation token
@@ -323,6 +310,25 @@ pollIVar (IVar _ ref) =
 -- because they carry their own token (they are different 'threads' than the
 -- one that resumes them)
 data IVarContents a = Full a | Empty | Blocked [a -> Trace]
+
+wrapCancel m = do
+  optTok <- getCancelToken
+  optCanc <- case optTok of
+    Nothing -> do
+      tok <- newCancelToken
+      setCancelToken $ Just tok
+      return $ Just tok
+    Just _ -> 
+      return Nothing
+
+  res <- m
+
+  case optCanc of
+    Nothing -> return ()
+    Just tok -> do
+      setCancelToken optTok
+      cancel tok      
+  return res
 
 
 {-# INLINE runPar_internal #-}
@@ -371,6 +377,9 @@ runPar_internal _doSync x = unsafePerformIO $ do
 
 runPar :: Par a -> a
 runPar = runPar_internal True
+
+runPar_ :: Par a -> a
+runPar_ = runPar_internal True . wrapCancel
 
 -- | An asynchronous version in which the main thread of control in a
 -- Par computation can return while forked computations still run in

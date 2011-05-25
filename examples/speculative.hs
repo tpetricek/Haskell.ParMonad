@@ -107,12 +107,12 @@ punamb p1 p2 = do
   ct2 <- newCancelToken
   forkWith ct1 (do
     a <- p1
-    cancel ct2 
-    put r a)
+    put r a
+    cancel ct2)
   forkWith ct2 (do
     a <- p2
-    cancel ct1
-    put r a)
+    put r a
+    cancel ct1)
   v <- get r
   return v
 
